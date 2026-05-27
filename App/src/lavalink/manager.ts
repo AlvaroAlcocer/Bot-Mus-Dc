@@ -1,6 +1,7 @@
-import { Client } from 'discord.js';
+import { Client, TextBasedChannel } from 'discord.js';
 import { LavalinkManager } from 'lavalink-client';
 import { config } from '../config';
+import { sendNowPlaying } from '../utils/nowPlaying';
 
 let lavalink: LavalinkManager | null = null;
 
@@ -51,7 +52,7 @@ export function initManager(client: Client): LavalinkManager {
     if (!track) return;
     const channel = client.channels.cache.get(player.textChannelId!);
     if (channel?.isTextBased() && 'send' in channel) {
-      (channel as { send: (content: string) => Promise<unknown> }).send(`Now playing: **${track.info.title}**`);
+      sendNowPlaying(channel as TextBasedChannel & { send: Function }, player, track);
     }
   });
 
