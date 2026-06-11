@@ -35,6 +35,16 @@ LAVALINK_PASSWORD=youshallnotpass
 
 ### Opción 1 — Docker (recomendado)
 
+**Primera vez o después de cambios en el código:**
+
+```bash
+docker compose up --build -d
+```
+
+> `--build` reconstruye la imagen para reflejar cambios en el código fuente (ej: editar archivos `.ts`). Sin este flag Docker usa la imagen en caché.
+
+**Arranque normal (sin cambios):**
+
 ```bash
 docker compose up -d
 ```
