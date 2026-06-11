@@ -36,6 +36,23 @@ export function initManager(client: Client): LavalinkManager {
     playerOptions: {
       onEmptyQueue: {
         destroyAfterMs: 30_000,
+        autoPlayFunction: async (player, lastPlayedTrack) => {
+          const autoplay = player.getData('autoplay');
+          if (!autoplay) return;
+
+          const query = `${lastPlayedTrack.info.author} - ${lastPlayedTrack.info.title}`;
+          const result = await player.search(
+            { query, source: 'youtube' },
+            lastPlayedTrack.requester ?? 'autoplay',
+          );
+
+          if (result?.loadType === 'search' && result.tracks.length > 0) {
+            const track = result.tracks.find(
+              t => t.info.identifier !== lastPlayedTrack.info.identifier,
+            ) ?? result.tracks[0];
+            await player.queue.add(track);
+          }
+        },
       },
     },
   });

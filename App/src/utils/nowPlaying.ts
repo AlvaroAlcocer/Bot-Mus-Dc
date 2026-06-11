@@ -23,7 +23,7 @@ function buildProgressBar(current: number, total: number, length = 10): string {
   return '▬'.repeat(filled) + '🔘' + '▬'.repeat(empty);
 }
 
-function getButtons(paused: boolean, loop: boolean) {
+function getButtons(paused: boolean, loop: boolean, autoplay: boolean) {
   const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId('np_prev')
@@ -53,13 +53,15 @@ function getButtons(paused: boolean, loop: boolean) {
       .setEmoji(loop ? '🔂' : '🔁')
       .setStyle(loop ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('np_voldown')
-      .setEmoji('🔉')
+      .setCustomId('np_queue')
+      .setEmoji('📋')
+      .setLabel('Queue')
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId('np_volup')
-      .setEmoji('🔊')
-      .setStyle(ButtonStyle.Secondary),
+      .setCustomId('np_autoplay')
+      .setEmoji('🔁')
+      .setLabel(autoplay ? 'Autoplay ON' : 'Autoplay OFF')
+      .setStyle(autoplay ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
   return [row1, row2];
@@ -76,7 +78,7 @@ export async function sendNowPlaying(
 
   const queue = player.queue;
   const queueLength = queue.tracks.length;
-  const nextTrack = queueLength > 0 ? queue.tracks[0] : null;
+  const autoplay = (player.getData('autoplay') as boolean) ?? false;
 
   const embed = new EmbedBuilder()
     .setColor(0x8b5cf6)
@@ -92,15 +94,15 @@ export async function sendNowPlaying(
     )
     .addFields(
       { name: 'Requested by', value: requester, inline: true },
-      { name: 'Volume', value: `${player.volume}%`, inline: true },
     );
 
-  if (nextTrack) {
-    embed.addFields({
-      name: 'Up Next',
-      value: `[${nextTrack.info.title}](${nextTrack.info.uri})`,
-      inline: false,
-    });
+  if (queueLength > 0) {
+    const preview = queue.tracks.slice(0, 5);
+    const list = preview
+      .map((t, i) => `**${i + 1}.** [${t.info.title}](${t.info.uri})`)
+      .join('\n');
+    const remaining = queueLength > 5 ? `\n*... and ${queueLength - 5} more*` : '';
+    embed.addFields({ name: 'Up Next', value: `${list}${remaining}`, inline: false });
   }
 
   embed.setFooter({
@@ -112,7 +114,7 @@ export async function sendNowPlaying(
 
   const msg: Message = await channel.send({
     embeds: [embed],
-    components: getButtons(player.paused, player.repeatMode === 'track'),
+    components: getButtons(player.paused, player.repeatMode === 'track', autoplay),
   });
 
   const collector = msg.createMessageComponentCollector({
@@ -120,35 +122,35 @@ export async function sendNowPlaying(
     time: durationMs + 30_000,
   });
 
-  const progressInterval = setInterval(async () => {
-    if (!player.connected) return;
-    const pos = player.position ?? 0;
-    if (pos > durationMs) return;
-    const updated = EmbedBuilder.from(embed)
-      .setDescription(`\`${formatTime(pos)}\` ${buildProgressBar(pos, durationMs)} \`${formatTime(durationMs)}\``);
-    await msg.edit({ embeds: [updated] }).catch(() => {});
-  }, 5_000);
+  function getUpdatedAutoplay(): boolean {
+    return (player.getData('autoplay') as boolean) ?? false;
+  }
+
+  function updateButtons() {
+    msg.edit({
+      components: getButtons(player.paused, player.repeatMode === 'track', getUpdatedAutoplay()),
+    }).catch(() => {});
+  }
 
   collector.on('collect', async (btn) => {
-    await btn.deferUpdate();
-
     switch (btn.customId) {
       case 'np_pause':
+        await btn.deferUpdate();
         if (player.paused) {
           await player.resume();
         } else {
           await player.pause();
         }
-        await msg.edit({
-          components: getButtons(player.paused, player.repeatMode === 'track'),
-        });
+        updateButtons();
         break;
 
       case 'np_skip':
+        await btn.deferUpdate();
         await player.skip();
         break;
 
       case 'np_prev': {
+        await btn.deferUpdate();
         const previous = await queue.shiftPrevious();
         if (previous) {
           await player.play({ clientTrack: previous });
@@ -157,42 +159,57 @@ export async function sendNowPlaying(
       }
 
       case 'np_loop': {
+        await btn.deferUpdate();
         const newMode = player.repeatMode === 'track' ? 'off' : 'track';
         await player.setRepeatMode(newMode);
-        await msg.edit({
-          components: getButtons(player.paused, player.repeatMode === 'track'),
-        });
+        updateButtons();
         break;
       }
 
       case 'np_shuffle':
+        await btn.deferUpdate();
         await queue.shuffle();
         break;
 
-      case 'np_voldown': {
-        const newVol = Math.max(0, player.volume - 10);
-        await player.setVolume(newVol);
-        const volEmbed = EmbedBuilder.from(embed).setFields(
-          { name: 'Requested by', value: requester, inline: true },
-          { name: 'Volume', value: `${newVol}%`, inline: true },
-        );
-        await msg.edit({ embeds: [volEmbed] }).catch(() => {});
+      case 'np_queue': {
+        const tracks = queue.tracks;
+        const maxTracks = 15;
+        let queueText = '';
+        if (queue.current) {
+          const uri = queue.current.info.uri ?? '';
+          queueText += `**Now Playing:** ${uri ? `[${queue.current.info.title}](${uri})` : queue.current.info.title}\n\n`;
+        }
+        if (tracks.length === 0) {
+          queueText += 'The queue is empty.';
+        } else {
+          const slice = tracks.slice(0, maxTracks);
+          const list = slice
+            .map((t, i) => {
+              const uri = t.info.uri ?? '';
+              const title = uri ? `[${t.info.title}](${uri})` : t.info.title;
+              return `${i + 1}. ${title} (\`${formatTime(t.info.duration ?? 0)}\`)`;
+            })
+            .join('\n');
+          const remaining = tracks.length > maxTracks ? `\n... and ${tracks.length - maxTracks} more` : '';
+          queueText += `**Queue (${tracks.length} tracks):**\n${list}${remaining}`;
+        }
+        if (queueText.length > 1900) {
+          queueText = queueText.slice(0, 1900) + '\n... (truncated)';
+        }
+        await btn.reply({ content: queueText, ephemeral: true });
         break;
       }
 
-      case 'np_volup': {
-        const newVol = Math.min(200, player.volume + 10);
-        await player.setVolume(newVol);
-        const volEmbed = EmbedBuilder.from(embed).setFields(
-          { name: 'Requested by', value: requester, inline: true },
-          { name: 'Volume', value: `${newVol}%`, inline: true },
-        );
-        await msg.edit({ embeds: [volEmbed] }).catch(() => {});
+      case 'np_autoplay': {
+        await btn.deferUpdate();
+        const current = player.getData('autoplay') ?? false;
+        player.setData('autoplay', !current);
+        updateButtons();
         break;
       }
 
       case 'np_stop':
-        clearInterval(progressInterval);
+        await btn.deferUpdate();
         await player.destroy();
         collector.stop('stopped');
         break;
@@ -200,7 +217,6 @@ export async function sendNowPlaying(
   });
 
   collector.on('end', () => {
-    clearInterval(progressInterval);
     msg.edit({ components: [] }).catch(() => {});
   });
 }
