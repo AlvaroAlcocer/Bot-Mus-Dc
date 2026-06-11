@@ -176,19 +176,14 @@ export async function sendNowPlaying(
         const maxTracks = 15;
         let queueText = '';
         if (queue.current) {
-          const uri = queue.current.info.uri ?? '';
-          queueText += `**Now Playing:** ${uri ? `[${queue.current.info.title}](${uri})` : queue.current.info.title}\n\n`;
+          queueText += `**Now Playing:** ${queue.current.info.title}\n\n`;
         }
         if (tracks.length === 0) {
           queueText += 'The queue is empty.';
         } else {
           const slice = tracks.slice(0, maxTracks);
           const list = slice
-            .map((t, i) => {
-              const uri = t.info.uri ?? '';
-              const title = uri ? `[${t.info.title}](${uri})` : t.info.title;
-              return `${i + 1}. ${title} (\`${formatTime(t.info.duration ?? 0)}\`)`;
-            })
+            .map((t, i) => `${i + 1}. ${t.info.title} (\`${formatTime(t.info.duration ?? 0)}\`)`)
             .join('\n');
           const remaining = tracks.length > maxTracks ? `\n... and ${tracks.length - maxTracks} more` : '';
           queueText += `**Queue (${tracks.length} tracks):**\n${list}${remaining}`;
