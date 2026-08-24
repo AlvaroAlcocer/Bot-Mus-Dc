@@ -13,6 +13,10 @@ lavalink:
       http: true
       local: false
 
+logging:
+  level:
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+
 plugins:
   youtube:
     enabled: true
@@ -24,6 +28,11 @@ plugins:
       - WEB
       - ANDROID_VR
       - TVHTML5_SIMPLY
+      - TV
     remoteCipher:
       url: "https://cipher.kikkia.dev/"
       userAgent: "bot-mus-dc"
+    oauth:
+      enabled: true
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+      skipInitialization: true
